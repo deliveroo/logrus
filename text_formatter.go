@@ -57,6 +57,9 @@ type TextFormatter struct {
 	// Disables the truncation of the level text to 4 characters.
 	DisableLevelTruncation bool
 
+	// Slice of keys whose values are quoted.
+	ForceQuoteFieldKeys []string
+
 	// QuoteEmptyFields will wrap empty fields in quotes if true
 	QuoteEmptyFields bool
 
@@ -79,6 +82,7 @@ type TextFormatter struct {
 	CallerPrettyfier func(*runtime.Frame) (function string, file string)
 
 	terminalInitOnce sync.Once
+	forceQuoteKeyMap map[string]bool
 }
 
 func (f *TextFormatter) init(entry *Entry) {
@@ -253,7 +257,7 @@ func (f *TextFormatter) printColored(b *bytes.Buffer, entry *Entry, keys []strin
 	for _, k := range keys {
 		v := data[k]
 		fmt.Fprintf(b, " \x1b[%dm%s\x1b[0m=", levelColor, k)
-		f.appendValue(b, v)
+		f.appendValue(b, v, f.keyShouldForceQuotes(k))
 	}
 }
 
@@ -272,22 +276,36 @@ func (f *TextFormatter) needsQuoting(text string) bool {
 	return false
 }
 
+func (f *TextFormatter) keyShouldForceQuotes(key string) bool {
+	if f.forceQuoteKeyMap == nil {
+		forceQuoteKeyMap := make(map[string]bool)
+		if f.ForceQuoteFieldKeys != nil {
+			for _, key := range f.ForceQuoteFieldKeys {
+				forceQuoteKeyMap[key] = true
+			}
+		}
+		f.forceQuoteKeyMap = forceQuoteKeyMap
+	}
+
+	return f.forceQuoteKeyMap[key]
+}
+
 func (f *TextFormatter) appendKeyValue(b *bytes.Buffer, key string, value interface{}) {
 	if b.Len() > 0 {
 		b.WriteByte(' ')
 	}
 	b.WriteString(key)
 	b.WriteByte('=')
-	f.appendValue(b, value)
+	f.appendValue(b, value, f.keyShouldForceQuotes(key))
 }
 
-func (f *TextFormatter) appendValue(b *bytes.Buffer, value interface{}) {
+func (f *TextFormatter) appendValue(b *bytes.Buffer, value interface{}, forceQuote bool) {
 	stringVal, ok := value.(string)
 	if !ok {
 		stringVal = fmt.Sprint(value)
 	}
 
-	if !f.needsQuoting(stringVal) {
+	if !forceQuote && !f.needsQuoting(stringVal) {
 		b.WriteString(stringVal)
 	} else {
 		b.WriteString(fmt.Sprintf("%q", stringVal))
